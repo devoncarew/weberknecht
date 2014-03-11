@@ -1,0 +1,38 @@
+
+<project default="dist">
+
+    <target name="init">
+        <property name="build.dir" value="build" />
+        <property name="dist.dir" value="dist" />
+
+        <property name="version" value="0.1.4" />
+    </target>
+
+    <target name="build" depends="init">
+        <mkdir dir="${build.dir}" />
+
+        <javac destdir="${build.dir}"
+               fork="true"
+               debug="true"
+               source="1.6"
+               target="1.6"
+               includeAntRuntime="false">
+            <src path="src" />
+        </javac>
+    </target>
+
+
+    <target name="dist" depends="build">
+        <jar destfile="${dist.dir}/weberknecht-${version}.jar" basedir="${build.dir}"/>
+        
+        <zip destfile="${dist.dir}/weberknecht-${version}-src.zip" basedir="src"/>
+    </target>
+
+
+    <target name="clean" depends="init">
+        <delete dir="${build.dir}" />
+        <delete dir="${dist.dir}" />
+    </target>
+
+
+</project>
