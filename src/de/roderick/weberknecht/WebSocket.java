@@ -1,15 +1,17 @@
 /*
- * Copyright (C) 2012 Roderick Baier
- * 
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
- * in compliance with the License. You may obtain a copy of the License at
- * 
- * http://www.apache.org/licenses/LICENSE-2.0
- * 
- * Unless required by applicable law or agreed to in writing, software distributed under the License
- * is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
- * or implied. See the License for the specific language governing permissions and limitations under
- * the License.
+ *  Copyright (C) 2012 Roderick Baier
+ *  
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *  
+ *  	http://www.apache.org/licenses/LICENSE-2.0
+ *  
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License. 
  */
 
 package de.roderick.weberknecht;
@@ -30,298 +32,311 @@ import java.util.Random;
 import javax.net.SocketFactory;
 import javax.net.ssl.SSLSocketFactory;
 
-public class WebSocket {
-  @SuppressWarnings("unused")
+
+public class WebSocket
+{
+	@SuppressWarnings("unused")
   private static final String GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-  private static final int VERSION = 13;
-
-  static final byte OPCODE_TEXT = 0x1;
-  static final byte OPCODE_BINARY = 0x2;
-  static final byte OPCODE_CLOSE = 0x8;
-  static final byte OPCODE_PING = 0x9;
-  static final byte OPCODE_PONG = 0xA;
-
-  public static int getVersion() {
-    return VERSION;
-  }
-
-  private URI url = null;
+	private static final int VERSION = 13;
+	
+	static final byte OPCODE_TEXT = 0x1;
+	static final byte OPCODE_BINARY = 0x2;
+	static final byte OPCODE_CLOSE = 0x8;
+	static final byte OPCODE_PING = 0x9;
+	static final byte OPCODE_PONG = 0xA;
+	
+	private URI url = null;
+	
   private String host;
   private int port;
-
   private String path;
+  
+	private WebSocketEventHandler eventHandler = null;
+	
+	private volatile boolean connected = false;
+	
+	private Socket socket = null;
+	private DataInputStream input = null;
+	private PrintStream output = null;
+	
+	private WebSocketReceiver receiver = null;
+	private WebSocketHandshake handshake = null;
+	
+	private final Random random = new Random();
+	
+	public WebSocket(URI url) throws WebSocketException
+	{
+		this(url, null, null);
+	}
 
-  private WebSocketEventHandler eventHandler = null;
+	public WebSocket(URI url, String protocol) throws WebSocketException
+	{
+		this(url, protocol, null);
+	}
 
-  private volatile boolean connected = false;
-  private Socket socket = null;
-  private DataInputStream input = null;
+	public WebSocket(URI url, String protocol, Map<String, String> extraHeaders) throws WebSocketException
+	{
+		this.url = url;
+		handshake = new WebSocketHandshake(url.getHost(), url.getPort(), url.getPath(), protocol, extraHeaders);
+	}
 
-  private PrintStream output = null;
-  private WebSocketReceiver receiver = null;
-
-  private WebSocketHandshake handshake = null;
-
-  private final Random random = new Random();
-
-  public WebSocket(String host, int port, String path) {
+	public WebSocket(String host, int port, String path) {
     this.host = host;
     this.port = port;
     this.path = path;
-
+    
     handshake = new WebSocketHandshake(host, port, path, null, null);
   }
+	
+	public void setEventHandler(WebSocketEventHandler eventHandler)
+	{
+		this.eventHandler = eventHandler;
+	}
 
-  public WebSocket(URI url) throws WebSocketException {
-    this(url, null, null);
-  }
+	public WebSocketEventHandler getEventHandler()
+	{
+		return this.eventHandler;
+	}
 
-  public WebSocket(URI url, String protocol) throws WebSocketException {
-    this(url, protocol, null);
-  }
+	public void connect() throws WebSocketException
+	{
+		try {
+			if (connected) {
+				throw new WebSocketException("already connected");
+			}
 
-  public WebSocket(URI url, String protocol, Map<String, String> extraHeaders)
-      throws WebSocketException {
-    this.url = url;
-    handshake = new WebSocketHandshake(url.getHost(), url.getPort(), url.getPath(), protocol,
-        extraHeaders);
-  }
+			socket = createSocket();
+			input = new DataInputStream(socket.getInputStream());
+			output = new PrintStream(socket.getOutputStream());
 
-  public synchronized void close() throws WebSocketException {
-    if (!connected) {
-      return;
-    }
+			output.write(handshake.getHandshake());
 
-    sendCloseHandshake();
+			boolean handshakeComplete = false;
+			int len = 1000;
+			byte[] buffer = new byte[len];
+			int pos = 0;
+			ArrayList<String> handshakeLines = new ArrayList<String>();
 
-    if (receiver.isRunning()) {
-      receiver.stopit();
-    }
+			while (!handshakeComplete) {
+				int b = input.read();
+				buffer[pos] = (byte) b;
+				pos += 1;
 
-    closeStreams();
+				if (buffer[pos - 1] == 0x0A && buffer[pos - 2] == 0x0D) {
+					String line = new String(buffer, "UTF-8");
+					if (line.trim().equals("")) {
+						handshakeComplete = true;
+					} else {
+						handshakeLines.add(line.trim());
+					}
 
-    eventHandler.onClose();
-  }
-
-  public void connect() throws WebSocketException {
-    try {
-      if (connected) {
-        throw new WebSocketException("already connected");
-      }
-
-      socket = createSocket();
-      input = new DataInputStream(socket.getInputStream());
-      output = new PrintStream(socket.getOutputStream());
-
-      output.write(handshake.getHandshake());
-
-      boolean handshakeComplete = false;
-      int len = 1000;
-      byte[] buffer = new byte[len];
-      int pos = 0;
-      ArrayList<String> handshakeLines = new ArrayList<String>();
-
-      while (!handshakeComplete) {
-        int b = input.read();
-        buffer[pos] = (byte) b;
-        pos += 1;
-
-        if (buffer[pos - 1] == 0x0A && buffer[pos - 2] == 0x0D) {
-          String line = new String(buffer, "UTF-8");
-          if (line.trim().equals("")) {
-            handshakeComplete = true;
-          } else {
-            handshakeLines.add(line.trim());
-          }
-
-          buffer = new byte[len];
-          pos = 0;
-        }
-      }
+					buffer = new byte[len];
+					pos = 0;
+				}
+			}
 
 //			for (String line : handshakeLines) {
 //				System.out.println(line);
 //			}
-      handshake.verifyServerStatusLine(handshakeLines.get(0));
-      handshakeLines.remove(0);
+			handshake.verifyServerStatusLine(handshakeLines.get(0));
+			handshakeLines.remove(0);
 
-      HashMap<String, String> headers = new HashMap<String, String>();
-      for (String line : handshakeLines) {
-        String[] keyValue = line.split(": ", 2);
-        headers.put(keyValue[0].toLowerCase(), keyValue[1].toLowerCase());
-      }
-      handshake.verifyServerHandshakeHeaders(headers);
+			HashMap<String, String> headers = new HashMap<String, String>();
+			for (String line : handshakeLines) {
+				String[] keyValue = line.split(": ", 2);
+				headers.put(keyValue[0], keyValue[1]);
+			}
+			handshake.verifyServerHandshakeHeaders(headers);
 
-      receiver = new WebSocketReceiver(input, this);
-      receiver.start();
-      connected = true;
-      eventHandler.onOpen();
-    } catch (WebSocketException wse) {
-      throw wse;
-    } catch (IOException ioe) {
-      throw new WebSocketException("error while connecting: " + ioe.getMessage(), ioe);
-    }
-  }
+			receiver = new WebSocketReceiver(input, this);
+			receiver.start();
+			connected = true;
+			eventHandler.onOpen();
+		} catch (WebSocketException wse) {
+			throw wse;
+		} catch (IOException ioe) {
+			throw new WebSocketException("error while connecting: " + ioe.getMessage(), ioe);
+		}
+	}
 
-  public WebSocketEventHandler getEventHandler() {
-    return this.eventHandler;
-  }
+	public synchronized void send(String data) throws WebSocketException
+	{
+		if (!connected) {
+			throw new WebSocketException("error while sending text data: not connected");
+		}
 
-  public void handleReceiverError() {
-    try {
-      if (connected) {
-        close();
-      }
-    } catch (WebSocketException wse) {
-      wse.printStackTrace();
-    }
-  }
+		try {
+			this.sendFrame(OPCODE_TEXT, true, data.getBytes("UTF-8"));
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
 
-  public synchronized void send(String data) throws WebSocketException {
-    if (!connected) {
-      throw new WebSocketException("error while sending text data: not connected");
-    }
+	private synchronized void sendFrame(byte opcode, boolean masking, byte[] data) throws WebSocketException, IOException
+	{
+		int headerLength = 2; // This is just an assumed headerLength, as we use a ByteArrayOutputStream
+		if (masking) {
+			headerLength += 4;
+		}
+		ByteArrayOutputStream frame = new ByteArrayOutputStream(data.length + headerLength);
 
-    try {
-      this.sendFrame(OPCODE_TEXT, true, data.getBytes("UTF-8"));
-    } catch (IOException e) {
-      e.printStackTrace();
-    }
-  }
+		byte fin = (byte) 0x80;
+		byte startByte = (byte) (fin | opcode);
+		frame.write(startByte);
+		int length = data.length;
+		int length_field = 0;
 
-  public void setEventHandler(WebSocketEventHandler eventHandler) {
-    this.eventHandler = eventHandler;
-  }
+		if (length < 126) {
+			if (masking) {
+				length = 0x80 | length;
+			}
+			frame.write((byte) length);
+		} else if (length <= 65535) {
+			length_field = 126;
+			if (masking) {
+				length_field = 0x80 | length_field;
+			}
+			frame.write((byte) length_field);
+			byte[] lengthBytes = intToByteArray(length);
+			frame.write(lengthBytes[2]);
+			frame.write(lengthBytes[3]);
+		} else {
+			length_field = 127;
+			if (masking) {
+				length_field = 0x80 | length_field;
+			}
+			frame.write((byte) length_field);
+			// Since an integer occupies just 4 bytes we fill the 4 leading length bytes with zero
+			frame.write(new byte[]{0x0, 0x0, 0x0, 0x0});
+			frame.write(intToByteArray(length));
+		}
 
-  private void closeStreams() throws WebSocketException {
-    try {
-      input.close();
-      output.close();
-      socket.close();
-    } catch (IOException ioe) {
-      throw new WebSocketException("error while closing websocket connection: ", ioe);
-    }
-  }
+		byte[] mask = null;
+		if (masking) {
+			mask = generateMask();
+			frame.write(mask);
 
-  private Socket createSocket() throws WebSocketException {
-    String scheme = url == null ? "ws" : url.getScheme();
-    String host = url == null ? this.host : url.getHost();
-    int port = url == null ? this.port : url.getPort();
+			for (int i = 0; i < data.length; i++) {
+				data[i] ^= mask[i % 4];
+			}
+		}
 
-    Socket socket = null;
+		frame.write(data);
+		output.write(frame.toByteArray());
+		output.flush();
+	}
 
-    if (scheme != null && scheme.equals("ws")) {
-      if (port == -1) {
-        port = 80;
-      }
-      try {
-        socket = new Socket(host, port);
-      } catch (UnknownHostException uhe) {
-        throw new WebSocketException("unknown host: " + host, uhe);
-      } catch (IOException ioe) {
-        throw new WebSocketException(
-            "error while creating socket to " + (url == null ? path : url), ioe);
-      }
-    } else if (scheme != null && scheme.equals("wss")) {
-      if (port == -1) {
-        port = 443;
-      }
-      try {
-        SocketFactory factory = SSLSocketFactory.getDefault();
-        socket = factory.createSocket(host, port);
-      } catch (UnknownHostException uhe) {
-        throw new WebSocketException("unknown host: " + host, uhe);
-      } catch (IOException ioe) {
-        throw new WebSocketException("error while creating secure socket to "
-            + (url == null ? path : url), ioe);
-      }
-    } else {
-      throw new WebSocketException("unsupported protocol: " + scheme);
-    }
+	public void handleReceiverError()
+	{
+		try {
+			if (connected) {
+				close();
+			}
+		} catch (WebSocketException wse) {
+			wse.printStackTrace();
+		}
+	}
 
-    return socket;
-  }
+	public synchronized void close() throws WebSocketException
+	{
+		if (!connected) {
+			return;
+		}
 
-  private byte[] generateMask() {
-    final byte[] mask = new byte[4];
-    random.nextBytes(mask);
-    return mask;
-  }
+		sendCloseHandshake();
 
-  private byte[] intToByteArray(int number) {
-    byte[] bytes = ByteBuffer.allocate(4).putInt(number).array();
-    return bytes;
-  }
+		if (receiver.isRunning()) {
+			receiver.stopit();
+		}
 
-  private synchronized void sendCloseHandshake() throws WebSocketException {
-    if (!connected) {
-      throw new WebSocketException("error while sending close handshake: not connected");
-    }
+		closeStreams();
 
-    if (!connected) {
-      throw new WebSocketException("error while sending close");
-    }
+		eventHandler.onClose();
+	}
 
-    try {
-      this.sendFrame(OPCODE_CLOSE, true, new byte[0]);
-    } catch (IOException e) {
-      e.printStackTrace();
-    }
+	private synchronized void sendCloseHandshake() throws WebSocketException
+	{
+		if (!connected) {
+			throw new WebSocketException("error while sending close handshake: not connected");
+		}
 
-    connected = false;
-  }
+		if (!connected) {
+			throw new WebSocketException("error while sending close");
+		}
 
-  private synchronized void sendFrame(byte opcode, boolean masking, byte[] data)
-      throws WebSocketException, IOException {
-    int headerLength = 2; // This is just an assumed headerLength, as we use a ByteArrayOutputStream
-    if (masking) {
-      headerLength += 4;
-    }
-    ByteArrayOutputStream frame = new ByteArrayOutputStream(data.length + headerLength);
+		try {
+			this.sendFrame(OPCODE_CLOSE, true, new byte[0]);
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
 
-    byte fin = (byte) 0x80;
-    byte startByte = (byte) (fin | opcode);
-    frame.write(startByte);
-    int length = data.length;
-    int length_field = 0;
+		connected = false;
+	}
 
-    if (length < 126) {
-      if (masking) {
-        length = 0x80 | length;
-      }
-      frame.write((byte) length);
-    } else if (length <= 65535) {
-      length_field = 126;
-      if (masking) {
-        length_field = 0x80 | length_field;
-      }
-      frame.write((byte) length_field);
-      byte[] lengthBytes = intToByteArray(length);
-      frame.write(lengthBytes[2]);
-      frame.write(lengthBytes[3]);
-    } else {
-      length_field = 127;
-      if (masking) {
-        length_field = 0x80 | length_field;
-      }
-      frame.write((byte) length_field);
-      // Since an integer occupies just 4 bytes we fill the 4 leading length bytes with zero
-      frame.write(new byte[] {0x0, 0x0, 0x0, 0x0});
-      frame.write(intToByteArray(length));
-    }
+	private Socket createSocket() throws WebSocketException
+	{
+		String scheme = url == null ? "ws" : url.getScheme();
+		String host = url == null ? this.host : url.getHost();
+		int port = url == null ? this.port : url.getPort();
 
-    byte[] mask = null;
-    if (masking) {
-      mask = generateMask();
-      frame.write(mask);
+		Socket socket = null;
 
-      for (int i = 0; i < data.length; i++) {
-        data[i] ^= mask[i % 4];
-      }
-    }
+		if (scheme != null && scheme.equals("ws")) {
+			if (port == -1) {
+				port = 80;
+			}
+			try {
+				socket = new Socket(host, port);
+			} catch (UnknownHostException uhe) {
+				throw new WebSocketException("unknown host: " + host, uhe);
+			} catch (IOException ioe) {
+				throw new WebSocketException("error while creating socket to " + (url == null ? path : url), ioe);
+			}
+		} else if (scheme != null && scheme.equals("wss")) {
+			if (port == -1) {
+				port = 443;
+			}
+			try {
+				SocketFactory factory = SSLSocketFactory.getDefault();
+				socket = factory.createSocket(host, port);
+			} catch (UnknownHostException uhe) {
+				throw new WebSocketException("unknown host: " + host, uhe);
+			} catch (IOException ioe) {
+				throw new WebSocketException("error while creating secure socket to " + (url == null ? path : url), ioe);
+			}
+		} else {
+			throw new WebSocketException("unsupported protocol: " + scheme);
+		}
 
-    frame.write(data);
-    output.write(frame.toByteArray());
-    output.flush();
-  }
+		return socket;
+	}
+
+	private byte[] generateMask()
+	{
+		final byte[] mask = new byte[4];
+		random.nextBytes(mask);
+		return mask;
+	}
+
+	private byte[] intToByteArray(int number)
+	{
+		byte[] bytes = ByteBuffer.allocate(4).putInt(number).array();
+		return bytes;
+	}
+
+	private void closeStreams() throws WebSocketException
+	{
+		try {
+			input.close();
+			output.close();
+			socket.close();
+		} catch (IOException ioe) {
+			throw new WebSocketException("error while closing websocket connection: ", ioe);
+		}
+	}
+
+	public static int getVersion()
+	{
+		return VERSION;
+	}
 }
