@@ -148,7 +148,7 @@ public class WebSocket {
       HashMap<String, String> headers = new HashMap<String, String>();
       for (String line : handshakeLines) {
         String[] keyValue = line.split(": ", 2);
-        headers.put(keyValue[0], keyValue[1]);
+        headers.put(keyValue[0].toLowerCase(), keyValue[1].toLowerCase());
       }
       handshake.verifyServerHandshakeHeaders(headers);
 
