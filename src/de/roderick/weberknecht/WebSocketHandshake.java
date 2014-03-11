@@ -80,10 +80,10 @@ public class WebSocketHandshake {
 
   public void verifyServerHandshakeHeaders(HashMap<String, String> headers)
       throws WebSocketException {
-    if (!headers.get("upgrade").toLowerCase().equals("websocket")) {
+    if (!headers.get("upgrade").equalsIgnoreCase("websocket")) {
       throw new WebSocketException(
           "connection failed: missing header field in server handshake: upgrade");
-    } else if (!headers.get("connection").equals("upgrade")) {
+    } else if (!headers.get("connection").equalsIgnoreCase("upgrade")) {
       throw new WebSocketException(
           "connection failed: missing header field in server handshake: connection");
     }
