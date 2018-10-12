@@ -61,7 +61,7 @@ public class WebSocketReceiver extends Thread {
           messageBytes.add(input.readByte());
         }
         Byte[] message = messageBytes.toArray(new Byte[messageBytes.size()]);
-        WebSocketMessage ws_message = new WebSocketMessage(message);
+        WebSocketMessage ws_message  = new WebSocketMessage(message, opcode == 1);
         eventHandler.onMessage(ws_message);
         messageBytes.clear();
       } catch (IOException ioe) {
