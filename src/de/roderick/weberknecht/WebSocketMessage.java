@@ -20,10 +20,6 @@ public class WebSocketMessage {
   private Byte[] message;
   private boolean asText;
 
-  public WebSocketMessage(final Byte[] message) {
-    this.message = message;
-  }
-
   public WebSocketMessage(final Byte[] message, boolean asText) {
     this.message = message;
     this.asText = asText;
