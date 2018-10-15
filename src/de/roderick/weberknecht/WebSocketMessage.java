@@ -18,12 +18,16 @@ import java.io.UnsupportedEncodingException;
 
 public class WebSocketMessage {
   private Byte[] message;
+  private boolean asText;
 
-  public WebSocketMessage(final Byte[] message) {
+  public WebSocketMessage(final Byte[] message, boolean asText) {
     this.message = message;
+    this.asText = asText;
   }
 
   public String getText() {
+    if (!isText()) return null;
+
     byte[] message = new byte[this.message.length];
     for (int i = 0; i < this.message.length; i++) {
       message[i] = this.message[i];
@@ -34,4 +38,10 @@ public class WebSocketMessage {
       return null;
     }
   }
+
+  public boolean isBinary() { return !asText; }
+  public boolean isText() { return asText; }
+
+  // returned value is not a copy.
+  public Byte[] getMessageAsRawBytes() { return message; }
 }
