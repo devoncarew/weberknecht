@@ -26,7 +26,7 @@ public class WebSocketMessage {
   }
 
   public String getText() {
-    if (!asText) return null;
+    if (!isText()) return null;
 
     byte[] message = new byte[this.message.length];
     for (int i = 0; i < this.message.length; i++) {
@@ -40,6 +40,7 @@ public class WebSocketMessage {
   }
 
   public boolean isBinary() { return !asText; }
+  public boolean isText() { return asText; }
 
   // returned value is not a copy.
   public Byte[] getMessageAsRawBytes() { return message; }
